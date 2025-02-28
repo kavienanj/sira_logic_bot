@@ -14,11 +14,11 @@ translations = {
         "Price": "Price",
         "View Product": "View Product",
         "Suggestions": [
-            "What is Sira-Logic?",
             "How can Sira-Logic help me?",
-            "Can you tell me more about Sira-Logic?",
+            "I need help with Social Media Automation System.",
+            "I want to build a workflow with AI Chatbots & Conversational Automation.",
+            "Help me understand the Lead Generation System Options.",
             "What services does Sira-Logic offer?",
-            "Do you have any success stories?"
         ]
     },
     "Danish": {
@@ -36,11 +36,11 @@ translations = {
         "Price": "Pris",
         "View Product": "Se produkt",
         "Suggestions": [
-            "Hvad er Sira-Logic?",
             "Hvordan kan Sira-Logic hjælpe mig?",
-            "Kan du fortælle mig mere om Sira-Logic?",
+            "Jeg har brug for hjælp til Social Media Automation System.",
+            "Jeg vil gerne opbygge en arbejdsgang med AI Chatbots & Conversational Automation.",
+            "Hjælp mig med at forstå Lead Generation System Options.",
             "Hvilke tjenester tilbyder Sira-Logic?",
-            "Har du nogle succeshistorier?"
         ]
     },
 }
