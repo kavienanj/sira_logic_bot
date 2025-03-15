@@ -19,9 +19,12 @@ st.markdown("<h2 style='text-align: center;'>Sira Logic - AI Assitant</h1>", uns
 client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 
 # GHL API Configuration
+API_KEY = os.getenv('API_KEY')
 GHL_API_KEY = os.getenv('GHL_API_KEY')
 GHL_LOCATION_ID = os.getenv('GHL_LOCATION_ID')
 GHL_API_BASE_URL = "https://rest.gohighlevel.com/v1"
+GHL_API_BASE_URL_NEW = "https://services.leadconnectorhq.com"
+CALENDAR_ID = "CVokAlI8fgw4WYWoCtQz"
 
 # Initialise session state variables
 if 'generated' not in st.session_state:
@@ -220,7 +223,7 @@ def add_note_to_ghl_contact(contact_id, note):
         print(f"Adding note to GHL contact {contact_id}")
         
         response = requests.post(
-            f"{GHL_API_BASE_URL}/conversations/messages", 
+            f"{GHL_API_BASE_URL}/contacts/{contact_id}/notes/", 
             headers=headers,
             json=data
         )
@@ -245,49 +248,32 @@ def add_note_to_ghl_contact(contact_id, note):
 def create_ghl_calendar_appointment(contact_id, title, start_time, end_time, description=""):
     """Create a calendar appointment in GoHighLevel CRM"""
     try:
-        if not GHL_API_KEY:
+        if not API_KEY:
             st.error("GHL API key is missing. Please check your environment variables.")
             return False
 
         headers = {
-            "Authorization": f"Bearer {GHL_API_KEY}",
+            "Authorization": f"Bearer {API_KEY}",
+            "Version": "2021-04-15",
             "Content-Type": "application/json"
         }
         
         # Format the date and time properly for GHL
-        start_datetime = datetime.fromisoformat(start_time)
-        end_datetime = datetime.fromisoformat(end_time)
+        # start_datetime = datetime.fromisoformat(start_time)
+        # end_datetime = datetime.fromisoformat(end_time)
         
         data = {
-            "title": title,
-            "description": description,
-            "startTime": int(start_datetime.timestamp() * 1000),  # Convert to milliseconds timestamp
-            "endTime": int(end_datetime.timestamp() * 1000),  # Convert to milliseconds timestamp
+            "calendarId": "iVlTvp2urxTWEEF6Lfx2",
+            "locationId": "GHL_LOCATION_ID",
             "contactId": contact_id,
-            "locationId": GHL_LOCATION_ID,
-            "calendarId": "default",
-            "status": "scheduled",
-            "appointmentOwner": "AI Assistant",  # You might want to make this configurable
-            "invitees": [
-                {
-                    "id": contact_id,
-                    "type": "contact"
-                }
-            ],
-            "calendar": "Sales Team",  # You might want to make this configurable
-            "durationInMinutes": 60,
-            "notification": {
-                "type": "email",
-                "enabled": True,
-                "emailTemplate": "default"  # You might want to make this configurable
-            }
+            "startTime": "2025-04-17T11:30:00+05:30" # You might want to make this configurable          
         }
         
         print(f"Creating calendar appointment for contact {contact_id}")
         print(f"Appointment data: {json.dumps(data, indent=2)}")
         
         response = requests.post(
-            f"{GHL_API_BASE_URL}/appointments/", 
+            f"{GHL_API_BASE_URL_NEW}/calendars/events/appointments", 
             headers=headers,
             json=data
         )
@@ -416,7 +402,117 @@ def parse_appointment_time(user_input):
         print(f"Error parsing appointment time: {str(e)}")
         return None, None
 
+def get_ghl_booked_slots():
+    """Get booked calendar slots from GoHighLevel"""
+    try:
+        if not GHL_API_KEY:
+            st.error("GHL API key is missing. Please check your environment variables.")
+            return []
 
+        headers = {
+            "Authorization": f"Bearer {GHL_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        # Get appointments for the next 7 days
+        start_time = datetime.now()
+        end_time = start_time + timedelta(days=7)
+        
+        params = {
+            "locationId": GHL_LOCATION_ID,
+            "startTime": int(start_time.timestamp() * 1000),
+            "endTime": int(end_time.timestamp() * 1000)
+        }
+        
+        response = requests.get(
+            f"{GHL_API_BASE_URL}/appointments/slots",
+            headers=headers,
+            params=params
+        )
+        
+        if response.status_code == 200:
+            appointments = response.json().get('appointments', [])
+            booked_slots = []
+            for appointment in appointments:
+                start = datetime.fromtimestamp(appointment['startTime'] / 1000)
+                end = datetime.fromtimestamp(appointment['endTime'] / 1000)
+                booked_slots.append((start, end))
+            return booked_slots
+        else:
+            st.error(f"Failed to get appointments: {response.text}")
+            return []
+            
+    except Exception as e:
+        st.error(f"Error getting booked slots: {str(e)}")
+        return []
+
+def suggest_available_slot(booked_slots):
+    """Suggest the next available time slot"""
+    now = datetime.now()
+    start_time = now.replace(hour=9, minute=0, second=0, microsecond=0)  # Start at 9 AM
+    
+    if start_time < now:
+        start_time += timedelta(days=1)  # If it's past 9 AM, look at tomorrow
+    
+    while True:
+        if start_time.hour >= 17:  # Past business hours (5 PM)
+            start_time = (start_time + timedelta(days=1)).replace(hour=9, minute=0)  # Next day 9 AM
+            continue
+            
+        if start_time.weekday() >= 5:  # Weekend
+            start_time = (start_time + timedelta(days=1)).replace(hour=9, minute=0)  # Next day 9 AM
+            continue
+            
+        end_time = start_time + timedelta(hours=1)
+        slot_available = True
+        
+        for booked_start, booked_end in booked_slots:
+            if (start_time >= booked_start and start_time < booked_end) or \
+               (end_time > booked_start and end_time <= booked_end):
+                slot_available = False
+                break
+                
+        if slot_available:
+            return start_time, end_time
+            
+        start_time += timedelta(hours=1)
+
+def analyze_booking_intent(user_input):
+    """Use LLM to analyze if user wants to book and extract time information"""
+    analyze_prompt = f"""
+    Analyze the user's message for appointment booking intent and time preferences.
+    
+    User message: "{user_input}"
+    
+    Provide your analysis in the following JSON format:
+    {{
+        "has_booking_intent": true/false,
+        "time_mentioned": true/false,
+        "wants_suggestion": true/false,
+        "explanation": "brief explanation of your analysis"
+    }}
+    
+    Only respond with the JSON object, no other text.
+    """
+    
+    completion = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": "You are an appointment scheduling assistant."},
+            {"role": "user", "content": analyze_prompt},
+        ],
+    )
+    
+    try:
+        result = json.loads(completion.choices[0].message.content.strip())
+        return result
+    except:
+        return {
+            "has_booking_intent": False,
+            "time_mentioned": False,
+            "wants_suggestion": False,
+            "explanation": "Error parsing response"
+        }
 
 def handle_lead_qualification(user_input):
     """Process the lead qualification flow"""
@@ -467,30 +563,56 @@ def handle_lead_qualification(user_input):
         if st.session_state['lead_score'] == "hot":
             # If this is a response to the consultation request
             if current_stage > len(QUALIFICATION_QUESTIONS) + 1:
-                # Try to parse the time from the user's response
-                start_time, end_time = parse_appointment_time(user_input)
+                # Use LLM to analyze booking intent
+                intent_analysis = analyze_booking_intent(user_input)
                 
-                if start_time and end_time:
-                    if create_ghl_calendar_appointment(
-                        st.session_state['ghl_contact_id'],
-                        "AI Automation Consultation",
-                        start_time,
-                        end_time,
-                        f"Consultation with {st.session_state['full_name']} about AI automation solutions.\n\nBusiness: {st.session_state['business_name']}\nPhone: {st.session_state['phone']}\nEmail: {st.session_state['email']}"
-                    ):
-                        appointment_time = datetime.fromisoformat(start_time)
-                        return f"Perfect! I've scheduled your consultation for {appointment_time.strftime('%A, %B %d at %I:%M %p')}. You'll receive a confirmation email shortly with the meeting details. Is there anything else you'd like to know about our services?"
+                if intent_analysis["has_booking_intent"]:
+                    if intent_analysis["time_mentioned"]:
+                        # Try to parse the time from the user's response
+                        start_time, end_time = parse_appointment_time(user_input)
+                        
+                        if start_time and end_time:
+                            # Get booked slots and check availability
+                            booked_slots = get_ghl_booked_slots()
+                            start_dt = datetime.fromisoformat(start_time)
+                            end_dt = datetime.fromisoformat(end_time)
+                            
+                            slot_available = True
+                            for booked_start, booked_end in booked_slots:
+                                if (start_dt >= booked_start and start_dt < booked_end) or \
+                                (end_dt > booked_start and end_dt <= booked_end):
+                                    slot_available = False
+                                    break
+                            
+                            if slot_available:
+                                if create_ghl_calendar_appointment(
+                                    st.session_state['ghl_contact_id'],
+                                    "AI Automation Consultation",
+                                    start_time,
+                                    end_time,
+                                    f"Consultation with {st.session_state['full_name']} about AI automation solutions.\n\nBusiness: {st.session_state['business_name']}\nPhone: {st.session_state['phone']}\nEmail: {st.session_state['email']}"
+                                ):
+                                    return f"Perfect! I've scheduled your consultation for {start_dt.strftime('%A, %B %d at %I:%M %p')}. You'll receive a confirmation email shortly with the meeting details. Is there anything else you'd like to know about our services?"
+                            else:
+                                # Suggest next available slot
+                                next_start, next_end = suggest_available_slot(booked_slots)
+                                return f"I apologize, but that time slot is already booked. The next available slot I have is {next_start.strftime('%A, %B %d at %I:%M %p')}. Would that work for you?"
+                    elif intent_analysis["wants_suggestion"]:
+                        # User wants a time suggestion
+                        booked_slots = get_ghl_booked_slots()
+                        next_start, next_end = suggest_available_slot(booked_slots)
+                        return f"I can help you schedule a consultation. Would {next_start.strftime('%A, %B %d at %I:%M %p')} work for you?"
                     else:
-                        return "I apologize, but there was an issue scheduling your appointment. Please try again or contact our support team directly at support@sira-logic.com"
+                        return "I can help you schedule a consultation call. When would be a good time for you? I'm available on weekdays between 9 AM and 5 PM."
                 else:
-                    return "I couldn't understand the time format. Could you please specify when you'd like to schedule the consultation? For example:\n- 'tomorrow at 2 PM'\n- 'next week at 10 AM'\n- '3 PM tomorrow'"
+                    # No booking intent detected, continue normal conversation
+                    return "Would you like to schedule a consultation call to discuss how we can help with your AI automation needs? I'm available on weekdays between 9 AM and 5 PM."
             
-            return "Great! I'd like to set up a consultation call for you. When would be a good time to talk? You can say something like 'tomorrow at 10 AM' or 'next week at 2 PM'."
+            return "I'd be happy to set up a consultation call to discuss how we can help with your AI automation needs. When would be a good time for you? I'm available on weekdays between 9 AM and 5 PM."
         elif st.session_state['lead_score'] == "warm":
             return "Thank you for sharing. Would you like to receive our case study on how AI automation has helped businesses similar to yours?"
         else:
             return "Thank you for your time. We'll keep you updated on new tools that might better match your needs in the future."
-
 
 
 
